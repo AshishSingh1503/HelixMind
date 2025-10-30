@@ -34,6 +34,21 @@ services:
     networks:
       - genomeguard-network
 
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    container_name: genomeguard-web
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      REACT_APP_API_URL: http://localhost:8000
+    depends_on:
+      - api
+    networks:
+      - genomeguard-network
+
 volumes:
   mongodb_data:
 
