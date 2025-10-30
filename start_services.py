@@ -12,7 +12,7 @@ from pathlib import Path
 
 def start_backend():
     """Start FastAPI backend"""
-    print("🚀 Starting GenomeGuard Backend API...")
+    print("Starting GenomeGuard Backend API...")
     return subprocess.Popen([
         sys.executable, "-m", "uvicorn", 
         "backend.main:app", 
@@ -23,7 +23,7 @@ def start_backend():
 
 def start_frontend():
     """Start Streamlit frontend"""
-    print("🎨 Starting GenomeGuard Frontend Dashboard...")
+    print("Starting GenomeGuard Frontend Dashboard...")
     return subprocess.Popen([
         sys.executable, "-m", "streamlit", "run", 
         "app/dashboard.py",
@@ -36,15 +36,15 @@ def check_mongodb():
         import pymongo
         client = pymongo.MongoClient("mongodb://localhost:27017", serverSelectionTimeoutMS=2000)
         client.server_info()
-        print("✅ MongoDB is running")
+        print("MongoDB is running")
         return True
     except Exception:
-        print("❌ MongoDB is not running")
+        print("MongoDB is not running")
         print("Please start MongoDB or run: docker-compose up -d mongodb")
         return False
 
 def main():
-    print("🧬 GenomeGuard - Starting Services")
+    print("GenomeGuard - Starting Services")
     print("=" * 50)
     
     # Check MongoDB
@@ -65,10 +65,10 @@ def main():
         frontend_process = start_frontend()
         
         print("\n" + "=" * 50)
-        print("🎉 GenomeGuard Services Started!")
-        print("📡 Backend API: http://localhost:8000")
-        print("🎨 Frontend Dashboard: http://localhost:8501")
-        print("📚 API Docs: http://localhost:8000/docs")
+        print("GenomeGuard Services Started!")
+        print("Backend API: http://localhost:8000")
+        print("Frontend Dashboard: http://localhost:8501")
+        print("API Docs: http://localhost:8000/docs")
         print("=" * 50)
         print("Press Ctrl+C to stop all services")
         
@@ -76,7 +76,7 @@ def main():
         try:
             backend_process.wait()
         except KeyboardInterrupt:
-            print("\n🛑 Stopping services...")
+            print("\nStopping services...")
             backend_process.terminate()
             frontend_process.terminate()
             
@@ -84,10 +84,10 @@ def main():
             backend_process.wait(timeout=5)
             frontend_process.wait(timeout=5)
             
-            print("✅ Services stopped successfully")
+            print("Services stopped successfully")
     
     except Exception as e:
-        print(f"❌ Error starting services: {e}")
+        print(f"Error starting services: {e}")
 
 if __name__ == "__main__":
     main()

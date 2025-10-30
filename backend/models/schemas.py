@@ -27,6 +27,9 @@ class User(BaseModel):
     full_name: Optional[str] = None
     created_at: datetime
     is_active: bool = True
+    
+    class Config:
+        populate_by_name = True
 
 class VCFUpload(BaseModel):
     filename: str
