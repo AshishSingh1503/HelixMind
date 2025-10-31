@@ -22,20 +22,50 @@ async def upload_vcf(
     # Validate file
     if not file.filename.endswith('.vcf'):
         raise HTTPException(status_code=400, detail="Only VCF files are allowed")
-    
-    if file.size > settings.MAX_FILE_SIZE:
-        raise HTTPException(status_code=400, detail="File too large")
-    
-    # Save file
+
+    # Save file while enforcing max size. FastAPI's UploadFile does not provide a
+    # reliable `size` attribute, so we stream the upload and count bytes.
     os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
     file_path = os.path.join(settings.UPLOAD_DIR, f"{current_user.id}_{file.filename}")
-    
+
+    max_size = settings.MAX_FILE_SIZE
+    bytes_written = 0
+
     try:
+        # Read in chunks from the UploadFile (async) and write to disk.
         with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
+            while True:
+                chunk = await file.read(1024 * 1024)  # 1MB
+                if not chunk:
+                    break
+                bytes_written += len(chunk)
+                if bytes_written > max_size:
+                    # Clean up partial file
+                    buffer.close()
+                    try:
+                        os.remove(file_path)
+                    except Exception:
+                        pass
+                    raise HTTPException(status_code=400, detail="File too large")
+                buffer.write(chunk)
+    except HTTPException:
+        # Re-raise known HTTP exceptions
+        raise
     except Exception as e:
         logger.error(f"File upload failed: {e}")
+        # Try to remove partial file if exists
+        try:
+            if os.path.exists(file_path):
+                os.remove(file_path)
+        except Exception:
+            pass
         raise HTTPException(status_code=500, detail="File upload failed")
+    finally:
+        # Ensure the uploaded file is closed
+        try:
+            await file.close()
+        except Exception:
+            pass
     
     # Create analysis record
     analysis_id = await analysis_service.create_analysis(current_user.id, file.filename)
