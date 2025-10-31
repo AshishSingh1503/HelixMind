@@ -18,9 +18,16 @@ api.interceptors.request.use((config) => {
 // Auth API
 export const authAPI = {
   register: (userData) => api.post('/auth/register', userData),
-  login: (credentials) => api.post('/auth/token', credentials, {
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
-  }),
+  login: (credentials) => {
+    // Convert to URLSearchParams for OAuth2 password flow
+    const formData = new URLSearchParams();
+    formData.append('username', credentials.username);
+    formData.append('password', credentials.password);
+    
+    return api.post('/auth/token', formData, {
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+    });
+  },
   getProfile: () => api.get('/auth/me'),
 };
 
