@@ -2,14 +2,14 @@ from pydantic_settings import BaseSettings
 from typing import Optional
 
 class Settings(BaseSettings):
-    # Database
-    MONGODB_URL: str = "mongodb+srv://arpitsingh8124_db_user:WGqhXNnpOa7heAvu@cluster0.l3aagtb.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
+    # Database - These MUST be set in .env file
+    MONGODB_URL: str
     DATABASE_NAME: str = "HelixMed"
     
-    # API
+    # API - SECRET_KEY MUST be set in .env file
     API_HOST: str = "127.0.0.1"
     API_PORT: int = 8000
-    SECRET_KEY: str = "your-secret-key-change-in-production"
+    SECRET_KEY: str
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     
@@ -26,5 +26,6 @@ class Settings(BaseSettings):
     
     class Config:
         env_file = ".env"
+        case_sensitive = True
 
 settings = Settings()
