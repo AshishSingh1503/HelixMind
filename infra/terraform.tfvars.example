@@ -10,7 +10,7 @@ project_name = "genomeguard"
 frontend_bucket_name = "genomeguard-frontend-dev-YOUR_ACCOUNT_ID"
 uploads_bucket_name  = "genomeguard-uploads-dev-YOUR_ACCOUNT_ID"
 
-# Container Images (will be updated by CI/CD)
+# Container Images
 backend_image = "YOUR_ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/genomeguard-backend:latest"
 worker_image  = "YOUR_ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/genomeguard-worker:latest"
 

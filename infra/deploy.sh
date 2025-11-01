@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# GenomeGuard Deployment Script
-# This script helps deploy the GenomeGuard infrastructure to AWS
+# GenomeGuard One-Time Deployment Script
+# Complete deployment of GenomeGuard infrastructure to AWS
 
 set -e
 
@@ -257,10 +257,10 @@ main() {
     echo "API: $(terraform output -raw api_url)"
     echo ""
     echo "Next steps:"
-    echo "1. Update your DNS records if using a custom domain"
-    echo "2. Configure SSL certificate if needed"
-    echo "3. Set up monitoring and alerting"
-    echo "4. Configure backup strategies"
+    echo "1. Test the application endpoints"
+    echo "2. Upload sample VCF files"
+    echo "3. Monitor CloudWatch logs"
+    echo "4. Configure custom domain if needed"
 }
 
 # Run main function
