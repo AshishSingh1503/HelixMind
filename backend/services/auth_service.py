@@ -37,11 +37,14 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
     return encoded_jwt
 
+# In-memory user storage for fallback when DB not available
+_memory_users = {}
+
 async def create_user(user_data: UserCreate) -> Optional[User]:
     """Create a new user"""
     db = get_database()
     
-    # Check if user exists
+    # Check if user exists in database
     if db is not None:
         existing_user = db.users.find_one({
             "$or": [
@@ -50,7 +53,14 @@ async def create_user(user_data: UserCreate) -> Optional[User]:
             ]
         })
         if existing_user:
+            logger.info(f"User already exists in database: {user_data.username}")
             return None
+    else:
+        # Check in-memory storage
+        for user_id, user in _memory_users.items():
+            if user["username"] == user_data.username or user["email"] == user_data.email:
+                logger.info(f"User already exists in memory: {user_data.username}")
+                return None
     
     # Create user document
     user_id = str(uuid.uuid4())
@@ -64,13 +74,18 @@ async def create_user(user_data: UserCreate) -> Optional[User]:
         "is_active": True
     }
     
-    # Insert into database
+    # Insert into database or memory
     if db is not None:
         try:
             db.users.insert_one(user_doc)
+            logger.info(f"✓ User created in MongoDB: {user_data.username}")
         except Exception as e:
-            logger.error(f"Failed to create user: {e}")
+            logger.error(f"Failed to create user in MongoDB: {e}")
             return None
+    else:
+        # Store in memory
+        _memory_users[user_id] = user_doc
+        logger.info(f"✓ User created in memory: {user_data.username}")
     
     return User(
         id=user_id,
@@ -84,50 +99,67 @@ async def create_user(user_data: UserCreate) -> Optional[User]:
 async def get_user_by_username(username: str) -> Optional[User]:
     """Get user by username"""
     db = get_database()
+    user_doc = None
     
-    if db is None:
+    # Try database first
+    if db is not None:
+        try:
+            user_doc = db.users.find_one({"username": username})
+        except Exception as e:
+            logger.error(f"Database query failed: {e}")
+    
+    # Fall back to memory storage
+    if user_doc is None:
+        for user_id, user in _memory_users.items():
+            if user["username"] == username:
+                user_doc = user
+                break
+    
+    if not user_doc:
         return None
     
-    try:
-        user_doc = db.users.find_one({"username": username})
-        if not user_doc:
-            return None
-        
-        return User(
-            id=user_doc["_id"],
-            username=user_doc["username"],
-            email=user_doc["email"],
-            full_name=user_doc.get("full_name"),
-            created_at=user_doc["created_at"],
-            is_active=user_doc.get("is_active", True)
-        )
-    except Exception as e:
-        logger.error(f"Failed to get user: {e}")
-        return None
+    return User(
+        id=user_doc["_id"],
+        username=user_doc["username"],
+        email=user_doc["email"],
+        full_name=user_doc.get("full_name"),
+        created_at=user_doc["created_at"],
+        is_active=user_doc.get("is_active", True)
+    )
 
 async def authenticate_user(username: str, password: str) -> Optional[User]:
     """Authenticate a user"""
     db = get_database()
+    user_doc = None
     
-    if db is None:
+    # Try database first
+    if db is not None:
+        try:
+            user_doc = db.users.find_one({"username": username})
+        except Exception as e:
+            logger.error(f"Database query failed: {e}")
+    
+    # Fall back to memory storage
+    if user_doc is None:
+        for user_id, user in _memory_users.items():
+            if user["username"] == username:
+                user_doc = user
+                break
+    
+    if not user_doc:
+        logger.debug(f"User not found: {username}")
         return None
     
-    try:
-        user_doc = db.users.find_one({"username": username})
-        if not user_doc:
-            return None
-        
-        if not verify_password(password, user_doc["hashed_password"]):
-            return None
-        
-        return User(
-            id=user_doc["_id"],
-            username=user_doc["username"],
-            email=user_doc["email"],
-            full_name=user_doc.get("full_name"),
-            created_at=user_doc["created_at"],
-            is_active=user_doc.get("is_active", True)
-        )
-    except Exception as e:
-        logger.error(f"Authentication failed: {e}")
+    if not verify_password(password, user_doc["hashed_password"]):
+        logger.debug(f"Invalid password for user: {username}")
         return None
+    
+    logger.info(f"✓ User authenticated: {username}")
+    return User(
+        id=user_doc["_id"],
+        username=user_doc["username"],
+        email=user_doc["email"],
+        full_name=user_doc.get("full_name"),
+        created_at=user_doc["created_at"],
+        is_active=user_doc.get("is_active", True)
+    )
