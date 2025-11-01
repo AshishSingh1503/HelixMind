@@ -1,0 +1,266 @@
+name: Deploy GenomeGuard to AWS
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+env:
+  AWS_REGION: us-east-1
+  PROJECT_NAME: genomeguard
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-cov
+
+      - name: Run tests
+        run: |
+          pytest tests/ -v --cov=backend
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install frontend dependencies
+        run: |
+          cd web
+          npm ci
+
+      - name: Build frontend
+        run: |
+          cd web
+          npm run build
+
+  build-and-push:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
+    
+    outputs:
+      backend-image: ${{ steps.build-backend.outputs.image }}
+      worker-image: ${{ steps.build-worker.outputs.image }}
+      
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set environment
+        run: |
+          if [[ $GITHUB_REF == 'refs/heads/main' ]]; then
+            echo "ENVIRONMENT=prod" >> $GITHUB_ENV
+          else
+            echo "ENVIRONMENT=dev" >> $GITHUB_ENV
+          fi
+
+      - name: Build and push backend image
+        id: build-backend
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: ${{ env.PROJECT_NAME }}-backend
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          # Build backend image
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG -f Dockerfile .
+          docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:latest
+          
+          # Push images
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+          
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+      - name: Build and push worker image
+        id: build-worker
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: ${{ env.PROJECT_NAME }}-worker
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          # For now, worker uses same image as backend
+          docker tag $ECR_REGISTRY/${{ env.PROJECT_NAME }}-backend:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:latest
+          
+          # Push images
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+          
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+  deploy-infrastructure:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
+    
+    defaults:
+      run:
+        working-directory: infra
+        
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.6.0
+
+      - name: Set environment
+        run: |
+          if [[ $GITHUB_REF == 'refs/heads/main' ]]; then
+            echo "ENVIRONMENT=prod" >> $GITHUB_ENV
+          else
+            echo "ENVIRONMENT=dev" >> $GITHUB_ENV
+          fi
+
+      - name: Get AWS Account ID
+        run: |
+          echo "AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)" >> $GITHUB_ENV
+
+      - name: Create terraform.tfvars
+        run: |
+          cat > terraform.tfvars << EOF
+          aws_region   = "${{ env.AWS_REGION }}"
+          env          = "${{ env.ENVIRONMENT }}"
+          project_name = "${{ env.PROJECT_NAME }}"
+          
+          frontend_bucket_name = "${{ env.PROJECT_NAME }}-frontend-${{ env.ENVIRONMENT }}-${{ env.AWS_ACCOUNT_ID }}"
+          uploads_bucket_name  = "${{ env.PROJECT_NAME }}-uploads-${{ env.ENVIRONMENT }}-${{ env.AWS_ACCOUNT_ID }}"
+          
+          backend_image = "${{ needs.build-and-push.outputs.backend-image }}"
+          worker_image  = "${{ needs.build-and-push.outputs.worker-image }}"
+          
+          backend_desired_count = ${{ env.ENVIRONMENT == 'prod' && 3 || 2 }}
+          backend_cpu          = ${{ env.ENVIRONMENT == 'prod' && 1024 || 512 }}
+          backend_memory       = ${{ env.ENVIRONMENT == 'prod' && 2048 || 1024 }}
+          worker_cpu           = ${{ env.ENVIRONMENT == 'prod' && 2048 || 1024 }}
+          worker_memory        = ${{ env.ENVIRONMENT == 'prod' && 4096 || 2048 }}
+          
+          docdb_username       = "genomeguard"
+          docdb_password       = "${{ secrets.DOCDB_PASSWORD }}"
+          docdb_instance_class = "${{ env.ENVIRONMENT == 'prod' && 'db.r5.large' || 'db.t3.medium' }}"
+          docdb_instance_count = ${{ env.ENVIRONMENT == 'prod' && 2 || 1 }}
+          
+          jwt_secret = "${{ secrets.JWT_SECRET }}"
+          
+          log_retention_days = ${{ env.ENVIRONMENT == 'prod' && 30 || 14 }}
+          
+          tags = {
+            Project     = "GenomeGuard"
+            Environment = "${{ env.ENVIRONMENT }}"
+            ManagedBy   = "Terraform"
+            GitCommit   = "${{ github.sha }}"
+          }
+          EOF
+
+      - name: Terraform Init
+        run: terraform init
+
+      - name: Terraform Plan
+        run: terraform plan -out=tfplan
+
+      - name: Terraform Apply
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
+        run: terraform apply -auto-approve tfplan
+
+      - name: Get outputs
+        id: terraform-outputs
+        run: |
+          echo "frontend-bucket=$(terraform output -raw frontend_bucket_name)" >> $GITHUB_OUTPUT
+          echo "cloudfront-id=$(terraform output -raw cloudfront_distribution_id)" >> $GITHUB_OUTPUT
+          echo "application-url=$(terraform output -raw application_url)" >> $GITHUB_OUTPUT
+
+  deploy-frontend:
+    needs: [build-and-push, deploy-infrastructure]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Set environment
+        run: |
+          if [[ $GITHUB_REF == 'refs/heads/main' ]]; then
+            echo "ENVIRONMENT=prod" >> $GITHUB_ENV
+          else
+            echo "ENVIRONMENT=dev" >> $GITHUB_ENV
+          fi
+
+      - name: Get Terraform outputs
+        working-directory: infra
+        run: |
+          terraform init
+          echo "FRONTEND_BUCKET=$(terraform output -raw frontend_bucket_name)" >> $GITHUB_ENV
+          echo "CLOUDFRONT_ID=$(terraform output -raw cloudfront_distribution_id)" >> $GITHUB_ENV
+          echo "API_URL=$(terraform output -raw api_url)" >> $GITHUB_ENV
+
+      - name: Build frontend
+        working-directory: web
+        env:
+          REACT_APP_API_URL: ${{ env.API_URL }}
+          REACT_APP_ENVIRONMENT: ${{ env.ENVIRONMENT }}
+        run: |
+          npm ci
+          npm run build
+
+      - name: Deploy to S3
+        working-directory: web
+        run: |
+          aws s3 sync build/ s3://${{ env.FRONTEND_BUCKET }} --delete
+
+      - name: Invalidate CloudFront
+        run: |
+          aws cloudfront create-invalidation --distribution-id ${{ env.CLOUDFRONT_ID }} --paths "/*"
+
+      - name: Deployment Summary
+        run: |
+          echo "🎉 Deployment completed successfully!"
+          echo "Environment: ${{ env.ENVIRONMENT }}"
+          echo "Frontend URL: https://${{ env.FRONTEND_BUCKET }}.s3-website-${{ env.AWS_REGION }}.amazonaws.com"
+          echo "API URL: ${{ env.API_URL }}"

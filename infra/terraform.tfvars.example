@@ -1,0 +1,42 @@
+# GenomeGuard Terraform Variables Example
+# Copy this file to terraform.tfvars and update with your values
+
+# General Configuration
+aws_region   = "us-east-1"
+env          = "dev"
+project_name = "genomeguard"
+
+# S3 Bucket Names (must be globally unique)
+frontend_bucket_name = "genomeguard-frontend-dev-YOUR_ACCOUNT_ID"
+uploads_bucket_name  = "genomeguard-uploads-dev-YOUR_ACCOUNT_ID"
+
+# Container Images (will be updated by CI/CD)
+backend_image = "YOUR_ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/genomeguard-backend:latest"
+worker_image  = "YOUR_ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/genomeguard-worker:latest"
+
+# ECS Configuration
+backend_desired_count = 2
+backend_cpu          = 512
+backend_memory       = 1024
+worker_cpu           = 1024
+worker_memory        = 2048
+
+# DocumentDB Configuration
+docdb_username       = "genomeguard"
+docdb_password       = "CHANGE_ME_SECURE_PASSWORD"
+docdb_instance_class = "db.t3.medium"
+docdb_instance_count = 1
+
+# Security
+jwt_secret = "CHANGE_ME_SECURE_JWT_SECRET_KEY"
+
+# Logging
+log_retention_days = 14
+
+# Tags
+tags = {
+  Project     = "GenomeGuard"
+  Environment = "dev"
+  ManagedBy   = "Terraform"
+  Owner       = "YourName"
+}
