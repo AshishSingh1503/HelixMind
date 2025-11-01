@@ -11,31 +11,63 @@ const Upload = () => {
   const navigate = useNavigate();
 
   const onDrop = async (acceptedFiles) => {
+    console.log('🔍 Upload: onDrop triggered');
+    console.log('📁 Files received:', acceptedFiles);
+    
     const file = acceptedFiles[0];
     
+    if (!file) {
+      console.error('❌ No file received');
+      toast.error('No file selected');
+      return;
+    }
+    
+    console.log('📄 File details:', {
+      name: file.name,
+      size: file.size,
+      type: file.type,
+      lastModified: file.lastModified
+    });
+    
     if (!file.name.endsWith('.vcf')) {
+      console.error('❌ Invalid file type:', file.name);
       toast.error('Please upload a VCF file');
       return;
     }
 
     setUploading(true);
+    console.log('⏳ Starting upload...');
     
     try {
+      console.log('🚀 Calling API upload...');
       const response = await analysisAPI.upload(file);
+      console.log('✅ Upload response:', response);
+      console.log('📊 Response data:', response.data);
+      
       const { analysis_id } = response.data;
+      console.log('🎯 Analysis ID:', analysis_id);
       
       setAnalysisId(analysis_id);
       toast.success('File uploaded successfully! Analysis started.');
       
       // Redirect to results page after a delay
       setTimeout(() => {
+        console.log('🔄 Redirecting to results page...');
         navigate(`/results/${analysis_id}`);
       }, 2000);
       
     } catch (error) {
-      toast.error('Upload failed. Please try again.');
+      console.error('❌ Upload error:', error);
+      console.error('❌ Error response:', error.response);
+      console.error('❌ Error data:', error.response?.data);
+      console.error('❌ Error status:', error.response?.status);
+      console.error('❌ Error message:', error.message);
+      
+      const errorMessage = error.response?.data?.detail || error.message || 'Upload failed. Please try again.';
+      toast.error(errorMessage);
     } finally {
       setUploading(false);
+      console.log('✅ Upload process finished');
     }
   };
 

@@ -13,6 +13,7 @@ import Register from './pages/Register';
 import Dashboard from './pages/Dashboard';
 import Upload from './pages/Upload';
 import History from './pages/History';
+import Results from './pages/Results';
 
 function App() {
   const [user, setUser] = useState(null);
@@ -77,6 +78,10 @@ function App() {
           <Route 
             path="/history" 
             element={user ? <History /> : <Navigate to="/login" />} 
+          />
+          <Route 
+            path="/results/:id" 
+            element={user ? <Results /> : <Navigate to="/login" />} 
           />
         </Routes>
 

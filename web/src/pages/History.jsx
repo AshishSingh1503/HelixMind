@@ -15,9 +15,21 @@ const History = () => {
 
   const fetchAnalyses = async () => {
     try {
+      console.log('📤 History: Fetching analyses...');
       const response = await analysisAPI.getHistory();
-      setAnalyses(response.data);
+      console.log('✅ History: Analyses received:', response.data);
+      
+      // Normalize the data - handle both _id and id fields
+      const normalizedAnalyses = (response.data || []).map(analysis => ({
+        ...analysis,
+        id: analysis.id || analysis._id
+      }));
+      
+      console.log('📊 History: Normalized analyses:', normalizedAnalyses);
+      setAnalyses(normalizedAnalyses);
     } catch (error) {
+      console.error('❌ History: Error fetching analyses:', error);
+      console.error('❌ History: Error response:', error.response);
       toast.error('Failed to load analysis history');
     } finally {
       setLoading(false);

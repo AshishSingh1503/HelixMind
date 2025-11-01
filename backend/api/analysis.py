@@ -79,7 +79,7 @@ async def upload_vcf(
         "filename": file.filename
     }
 
-@router.get("/results/{analysis_id}", response_model=AnalysisResult)
+@router.get("/results/{analysis_id}")
 async def get_analysis_results(
     analysis_id: str,
     current_user: User = Depends(get_current_user)
@@ -91,7 +91,8 @@ async def get_analysis_results(
     if not analysis:
         raise HTTPException(status_code=404, detail="Analysis not found")
     
-    if analysis.user_id != current_user.id:
+    # Access dict fields, not object attributes
+    if analysis.get('user_id') != current_user.id:
         raise HTTPException(status_code=403, detail="Access denied")
     
     return analysis
@@ -117,14 +118,15 @@ async def delete_analysis(
     if not analysis:
         raise HTTPException(status_code=404, detail="Analysis not found")
     
-    if analysis.user_id != current_user.id:
+    # Access dict fields, not object attributes
+    if analysis.get('user_id') != current_user.id:
         raise HTTPException(status_code=403, detail="Access denied")
     
     # Delete from database
-    analysis_service.db.analyses.delete_one({"_id": analysis_id})
+    analysis_service._db.analyses.delete_one({"_id": analysis_id})
     
     # Delete associated file
-    file_path = os.path.join(settings.UPLOAD_DIR, f"{current_user.id}_{analysis.vcf_file}")
+    file_path = os.path.join(settings.UPLOAD_DIR, f"{current_user.id}_{analysis.get('vcf_file')}")
     if os.path.exists(file_path):
         os.remove(file_path)
     

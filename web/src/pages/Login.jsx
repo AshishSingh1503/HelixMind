@@ -16,20 +16,33 @@ const Login = ({ onLogin }) => {
     e.preventDefault();
     setLoading(true);
 
+    console.log('🔐 Login: Attempting login with:', formData.username);
+
     try {
+      console.log('📤 Login: Calling API...');
       const response = await authAPI.login(formData);
+      console.log('✅ Login: Response received:', response);
+      
       const { access_token } = response.data;
+      console.log('🎫 Login: Token received:', access_token ? 'Yes' : 'No');
       
       localStorage.setItem('token', access_token);
+      console.log('💾 Login: Token saved to localStorage');
       
       // Get user profile
+      console.log('👤 Login: Fetching user profile...');
       const profileResponse = await authAPI.getProfile();
+      console.log('✅ Login: Profile received:', profileResponse.data);
+      
       onLogin(profileResponse.data);
       
       toast.success('Login successful!');
       navigate('/dashboard');
     } catch (error) {
-      toast.error('Invalid credentials');
+      console.error('❌ Login error:', error);
+      console.error('❌ Login error response:', error.response);
+      console.error('❌ Login error data:', error.response?.data);
+      toast.error(error.response?.data?.detail || 'Invalid credentials');
     } finally {
       setLoading(false);
     }

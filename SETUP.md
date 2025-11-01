@@ -2,15 +2,22 @@
 
 ## Prerequisites
 
-1. **Python 3.8+** - [Download Python](https://www.python.org/downloads/)
+1. **Python 3.13** - [Download Python](https://www.python.org/downloads/) (Required for latest package versions)
 2. **Node.js 16+** - [Download Node.js](https://nodejs.org/)
 3. **MongoDB** - Use Docker or [install locally](https://www.mongodb.com/try/download/community)
+
+> ⚠️ **Note:** This project requires Python 3.13 for compatibility with the latest package versions. If you have multiple Python installations, make sure to use Python 3.13.
 
 ## Quick Setup (Windows)
 
 ```bash
-# Run the automated setup script
-run_local.bat
+# Option 1: Create virtual environment (Recommended)
+create_venv.bat
+venv\Scripts\activate
+pip install -r requirements.txt
+
+# Option 2: Start backend directly
+start_backend.bat
 ```
 
 ## Manual Setup
@@ -74,16 +81,22 @@ python start_web.py
 ### Option 2: Individual Services
 
 ```bash
-# Terminal 1: Backend API
-python -m uvicorn backend.main:app --reload --host 127.0.0.1 --port 8000
+# Terminal 1: Backend API (run from PROJECT ROOT, not from backend/ directory)
+C:\Users\arpit\AppData\Local\Programs\Python\Python313\python.exe -m uvicorn backend.main:app --reload --host 127.0.0.1 --port 8000
+
+# Or use the batch file (easier):
+start_backend.bat
 
 # Terminal 2: Web Frontend
 cd web
+npm install  # First time only
 npm start
 
 # Terminal 3: Streamlit Dashboard (optional)
 streamlit run app/dashboard.py --server.port 8501
 ```
+
+> ⚠️ **Important:** Always run the backend command from the project root directory (`C:\Arpit\HelixMind`), NOT from inside the `backend/` folder. The `start_backend.bat` script handles this automatically.
 
 ## Testing the Setup
 
@@ -108,12 +121,24 @@ docker logs genomeguard-mongo
 
 ### Python Issues
 ```bash
+# Check Python version (must be 3.13)
+python --version
+
+# If wrong Python version, use the full path:
+C:\Users\arpit\AppData\Local\Programs\Python\Python313\python.exe --version
+
 # Reinstall dependencies
 pip install -r requirements.txt --force-reinstall
 
-# Check Python version
-python --version
+# Or create a virtual environment (recommended):
+create_venv.bat
 ```
+
+### Multiple Python Installations
+If you have multiple Python versions installed:
+1. Use `create_venv.bat` to create a virtual environment with Python 3.13
+2. Activate it with `venv\Scripts\activate`
+3. Or use `start_backend.bat` which uses the correct Python automatically
 
 ### Web Frontend Issues
 ```bash

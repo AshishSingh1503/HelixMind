@@ -3,8 +3,8 @@ from typing import Optional
 
 class Settings(BaseSettings):
     # Database
-    MONGODB_URL: str = "mongodb://localhost:27017"
-    DATABASE_NAME: str = "genomeguard"
+    MONGODB_URL: str = "mongodb+srv://arpitsingh8124_db_user:WGqhXNnpOa7heAvu@cluster0.l3aagtb.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
+    DATABASE_NAME: str = "HelixMed"
     
     # API
     API_HOST: str = "127.0.0.1"

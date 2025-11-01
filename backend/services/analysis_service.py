@@ -46,6 +46,9 @@ class AnalysisService:
         if self._db:
             try:
                 doc = self._db.analyses.find_one({"_id": analysis_id})
+                if doc:
+                    # Ensure id field is present for frontend compatibility
+                    doc['id'] = doc.get('_id')
                 return doc
             except Exception as e:
                 logger.warning(f"DB read failed: {e}")
@@ -55,6 +58,9 @@ class AnalysisService:
         if self._db:
             try:
                 docs = list(self._db.analyses.find({"user_id": user_id}))
+                # Ensure id field is present for frontend compatibility
+                for doc in docs:
+                    doc['id'] = doc.get('_id')
                 return docs
             except Exception as e:
                 logger.warning(f"DB read failed: {e}")

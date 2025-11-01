@@ -18,12 +18,25 @@ const Register = () => {
     e.preventDefault();
     setLoading(true);
 
+    console.log('👤 Register: Attempting registration with:', { 
+      username: formData.username, 
+      email: formData.email 
+    });
+
     try {
-      await authAPI.register(formData);
+      console.log('📤 Register: Calling API...');
+      const response = await authAPI.register(formData);
+      console.log('✅ Register: Registration successful:', response.data);
+      
       toast.success('Registration successful! Please login.');
       navigate('/login');
     } catch (error) {
-      toast.error('Registration failed. Username or email may already exist.');
+      console.error('❌ Register error:', error);
+      console.error('❌ Register error response:', error.response);
+      console.error('❌ Register error data:', error.response?.data);
+      
+      const errorMessage = error.response?.data?.detail || 'Registration failed. Username or email may already exist.';
+      toast.error(errorMessage);
     } finally {
       setLoading(false);
     }

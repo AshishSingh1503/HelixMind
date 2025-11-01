@@ -34,10 +34,26 @@ export const authAPI = {
 // Analysis API
 export const analysisAPI = {
   upload: (file) => {
+    console.log('📤 API: Uploading file...', {
+      name: file.name,
+      size: file.size,
+      type: file.type
+    });
+    
     const formData = new FormData();
     formData.append('file', file);
+    
+    console.log('📦 FormData created');
+    console.log('🔗 Posting to:', `${API_BASE_URL}/analysis/upload`);
+    
     return api.post('/analysis/upload', formData, {
       headers: { 'Content-Type': 'multipart/form-data' }
+    }).then(response => {
+      console.log('✅ API: Upload successful', response);
+      return response;
+    }).catch(error => {
+      console.error('❌ API: Upload failed', error);
+      throw error;
     });
   },
   getResult: (id) => api.get(`/analysis/results/${id}`),
