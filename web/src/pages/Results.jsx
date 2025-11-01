@@ -179,12 +179,12 @@ const Results = () => {
         <div className="grid md:grid-cols-2 gap-4">
           <div>
             <p className="text-sm text-gray-600">Filename</p>
-            <p className="font-medium">{analysis.vcf_file}</p>
+            <p className="font-medium">{analysis.filename || analysis.vcf_file || 'N/A'}</p>
           </div>
           <div>
             <p className="text-sm text-gray-600">Upload Date</p>
             <p className="font-medium">
-              {new Date(analysis.created_at).toLocaleString()}
+              {analysis.created_at ? new Date(analysis.created_at).toLocaleString() : 'N/A'}
             </p>
           </div>
           {analysis.completed_at && (
@@ -205,23 +205,29 @@ const Results = () => {
           <div className="grid md:grid-cols-4 gap-6 mb-6">
             <div className="card bg-gradient-to-br from-blue-50 to-blue-100">
               <p className="text-sm text-gray-600 mb-1">Total Variants</p>
-              <p className="text-3xl font-bold text-blue-900">{analysis.total_variants}</p>
+              <p className="text-3xl font-bold text-blue-900">
+                {analysis.variants_analyzed || analysis.total_variants || 0}
+              </p>
             </div>
             
             <div className="card bg-gradient-to-br from-yellow-50 to-yellow-100">
               <p className="text-sm text-gray-600 mb-1">High Risk Variants</p>
-              <p className="text-3xl font-bold text-yellow-900">{analysis.high_risk_variants}</p>
+              <p className="text-3xl font-bold text-yellow-900">
+                {analysis.high_risk_variants || 0}
+              </p>
             </div>
             
             <div className="card bg-gradient-to-br from-red-50 to-red-100">
               <p className="text-sm text-gray-600 mb-1">Pathogenic Variants</p>
-              <p className="text-3xl font-bold text-red-900">{analysis.pathogenic_variants}</p>
+              <p className="text-3xl font-bold text-red-900">
+                {analysis.pathogenic_variants || 0}
+              </p>
             </div>
             
             <div className="card bg-gradient-to-br from-purple-50 to-purple-100">
               <p className="text-sm text-gray-600 mb-1">Risk Classification</p>
               <p className={`text-3xl font-bold ${getRiskColor(analysis.risk_classification)}`}>
-                {analysis.risk_classification.toUpperCase()}
+                {analysis.risk_classification ? analysis.risk_classification.toUpperCase() : 'N/A'}
               </p>
             </div>
           </div>
@@ -233,25 +239,25 @@ const Results = () => {
               <div className="flex justify-between items-center mb-2">
                 <span className="text-sm font-medium text-gray-700">Risk Probability</span>
                 <span className="text-sm font-bold text-gray-900">
-                  {(analysis.risk_probability * 100).toFixed(1)}%
+                  {analysis.risk_probability ? (analysis.risk_probability * 100).toFixed(1) : 0}%
                 </span>
               </div>
               <div className="w-full bg-gray-200 rounded-full h-4">
                 <div
                   className={`h-4 rounded-full ${
-                    analysis.risk_probability < 0.3 ? 'bg-green-500' :
-                    analysis.risk_probability < 0.7 ? 'bg-yellow-500' : 'bg-red-500'
+                    (analysis.risk_probability || 0) < 0.3 ? 'bg-green-500' :
+                    (analysis.risk_probability || 0) < 0.7 ? 'bg-yellow-500' : 'bg-red-500'
                   }`}
-                  style={{ width: `${analysis.risk_probability * 100}%` }}
+                  style={{ width: `${(analysis.risk_probability || 0) * 100}%` }}
                 ></div>
               </div>
             </div>
           </div>
 
           {/* Variants Table */}
-          {analysis.variants && analysis.variants.length > 0 && (
+          {analysis.top_variants && analysis.top_variants.length > 0 && (
             <div className="card">
-              <h2 className="text-xl font-semibold mb-4">Identified Variants</h2>
+              <h2 className="text-xl font-semibold mb-4">Top Identified Variants</h2>
               <div className="overflow-x-auto">
                 <table className="min-w-full divide-y divide-gray-200">
                   <thead className="bg-gray-50">
@@ -269,33 +275,46 @@ const Results = () => {
                         Risk Level
                       </th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Pathogenicity
+                        Clinical Significance
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Disease
                       </th>
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
-                    {analysis.variants.map((variant, index) => (
+                    {analysis.top_variants.map((variant, index) => (
                       <tr key={index}>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                          {variant.chrom}
+                          {variant.chromosome}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                          {variant.pos}
+                          {variant.position}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                           {variant.gene || 'N/A'}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
                           <span className={`px-2 py-1 text-xs font-medium rounded-full ${
-                            variant.disease_risk === 'high' ? 'bg-red-100 text-red-800' :
-                            variant.disease_risk === 'medium' ? 'bg-yellow-100 text-yellow-800' :
+                            variant.risk === 'HIGH' ? 'bg-red-100 text-red-800' :
+                            variant.risk === 'MEDIUM' ? 'bg-yellow-100 text-yellow-800' :
                             'bg-green-100 text-green-800'
                           }`}>
-                            {variant.disease_risk}
+                            {variant.risk}
                           </span>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                          {variant.pathogenicity}
+                          <span className={`px-2 py-1 text-xs font-medium rounded-full ${
+                            variant.clnsig === 'Pathogenic' ? 'bg-red-100 text-red-800' :
+                            variant.clnsig === 'Likely_pathogenic' ? 'bg-orange-100 text-orange-800' :
+                            variant.clnsig === 'VUS' ? 'bg-gray-100 text-gray-800' :
+                            'bg-green-100 text-green-800'
+                          }`}>
+                            {variant.clnsig}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 text-sm text-gray-900">
+                          {variant.disease ? variant.disease.replace(/_/g, ' ') : 'N/A'}
                         </td>
                       </tr>
                     ))}
@@ -319,7 +338,16 @@ const Results = () => {
         {analysis.status === 'completed' && (
           <button
             className="btn-primary flex items-center"
-            onClick={() => toast.success('Download feature coming soon!')}
+            onClick={async () => {
+              try {
+                toast.loading('Generating report...', { id: 'download' });
+                await analysisAPI.downloadReport(analysis.id);
+                toast.success('Report downloaded successfully!', { id: 'download' });
+              } catch (error) {
+                console.error('Error downloading report:', error);
+                toast.error('Failed to download report', { id: 'download' });
+              }
+            }}
           >
             <Download className="h-5 w-5 mr-2" />
             Download Report

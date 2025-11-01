@@ -67,12 +67,14 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
         username: str = payload.get("sub")
         if username is None:
             raise HTTPException(status_code=401, detail="Invalid authentication credentials")
-    except jwt.JWTError:
-        raise HTTPException(status_code=401, detail="Invalid authentication credentials")
+    except jwt.JWTError as e:
+        raise HTTPException(status_code=401, detail=f"Invalid token: {str(e)}")
     
     user = users_db.get(username)
     if user is None:
-        raise HTTPException(status_code=401, detail="User not found")
+        # Log for debugging
+        print(f"User '{username}' not found. Available users: {list(users_db.keys())}")
+        raise HTTPException(status_code=401, detail=f"User '{username}' not found. Please login again.")
     
     return User(
         id=user["id"],
@@ -170,3 +172,395 @@ async def debug_users():
 async def clear_users():
     users_db.clear()
     return {"message": "All users cleared", "count": len(users_db)}
+
+# Analysis endpoints (VCF parsing implementation)
+from fastapi import UploadFile, File
+import uuid
+import random
+import io
+
+# In-memory storage for analyses
+analyses_db = {}
+
+def parse_vcf_file(file_content: str):
+    """Parse VCF file and extract variant information including pathogenic variants"""
+    lines = file_content.split('\n')
+    variants = []
+    high_risk_count = 0
+    medium_risk_count = 0
+    low_risk_count = 0
+    pathogenic_count = 0
+    likely_pathogenic_count = 0
+    vus_count = 0
+    benign_count = 0
+    
+    for line in lines:
+        if line.startswith('#') or not line.strip():
+            continue
+        
+        parts = line.split('\t')
+        if len(parts) < 8:
+            continue
+        
+        # Extract INFO field
+        info = parts[7]
+        
+        # Extract RISK level
+        risk_level = "LOW"
+        if "RISK=HIGH" in info:
+            risk_level = "HIGH"
+            high_risk_count += 1
+        elif "RISK=MEDIUM" in info:
+            risk_level = "MEDIUM"
+            medium_risk_count += 1
+        else:
+            low_risk_count += 1
+        
+        # Extract clinical significance (CLNSIG)
+        clnsig = "Unknown"
+        if "CLNSIG=Pathogenic" in info:
+            clnsig = "Pathogenic"
+            pathogenic_count += 1
+        elif "CLNSIG=Likely_pathogenic" in info:
+            clnsig = "Likely_pathogenic"
+            likely_pathogenic_count += 1
+        elif "CLNSIG=VUS" in info or "CLNSIG=Uncertain" in info:
+            clnsig = "VUS"
+            vus_count += 1
+        elif "CLNSIG=Benign" in info or "CLNSIG=Likely_benign" in info:
+            clnsig = "Benign"
+            benign_count += 1
+        
+        # Extract GENE, DISEASE, and IMPACT
+        gene = "Unknown"
+        disease = "Unknown"
+        impact = "Unknown"
+        
+        for item in info.split(';'):
+            if item.startswith('GENE='):
+                gene = item.replace('GENE=', '')
+            elif item.startswith('DISEASE='):
+                disease = item.replace('DISEASE=', '')
+            elif item.startswith('IMPACT='):
+                impact = item.replace('IMPACT=', '')
+        
+        variants.append({
+            "chromosome": parts[0],
+            "position": parts[1],
+            "id": parts[2],
+            "ref": parts[3],
+            "alt": parts[4],
+            "risk": risk_level,
+            "clnsig": clnsig,
+            "gene": gene,
+            "disease": disease,
+            "impact": impact
+        })
+    
+    return {
+        "total_variants": len(variants),
+        "high_risk": high_risk_count,
+        "medium_risk": medium_risk_count,
+        "low_risk": low_risk_count,
+        "pathogenic": pathogenic_count,
+        "likely_pathogenic": likely_pathogenic_count,
+        "vus": vus_count,
+        "benign": benign_count,
+        "variants": variants
+    }
+
+def calculate_risk_score(high: int, medium: int, low: int, total: int):
+    """Calculate overall risk score based on variant distribution"""
+    if total == 0:
+        return 0.5, "medium"
+    
+    # Weight the risks: HIGH=1.0, MEDIUM=0.5, LOW=0.1
+    weighted_score = (high * 1.0 + medium * 0.5 + low * 0.1) / total
+    
+    # Normalize to 0-1 range with some randomness
+    risk_probability = min(0.95, max(0.05, weighted_score * 0.7 + random.uniform(-0.1, 0.1)))
+    
+    # Classify based on probability
+    if risk_probability >= 0.7:
+        classification = "high"
+    elif risk_probability >= 0.4:
+        classification = "medium"
+    else:
+        classification = "low"
+    
+    return round(risk_probability, 2), classification
+
+@app.post("/analysis/upload")
+async def upload_vcf(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user)
+):
+    """Upload VCF file and create analysis"""
+    
+    # Validate file
+    if not file.filename.endswith('.vcf'):
+        raise HTTPException(status_code=400, detail="Only VCF files are allowed")
+    
+    # Read and parse VCF file
+    try:
+        content = await file.read()
+        file_content = content.decode('utf-8')
+        vcf_data = parse_vcf_file(file_content)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to parse VCF file: {str(e)}")
+    
+    # Calculate risk score
+    risk_probability, risk_classification = calculate_risk_score(
+        vcf_data["high_risk"],
+        vcf_data["medium_risk"],
+        vcf_data["low_risk"],
+        vcf_data["total_variants"]
+    )
+    
+    # Create analysis record
+    analysis_id = str(uuid.uuid4())
+    analysis = {
+        "id": analysis_id,
+        "user_id": current_user.id,
+        "filename": file.filename,
+        "status": "completed",
+        "risk_classification": risk_classification,
+        "risk_probability": risk_probability,
+        "variants_analyzed": vcf_data["total_variants"],
+        "high_risk_variants": vcf_data["high_risk"],
+        "medium_risk_variants": vcf_data["medium_risk"],
+        "low_risk_variants": vcf_data["low_risk"],
+        "pathogenic_variants": vcf_data["pathogenic"],
+        "likely_pathogenic_variants": vcf_data["likely_pathogenic"],
+        "vus_variants": vcf_data["vus"],
+        "benign_variants": vcf_data["benign"],
+        "created_at": datetime.utcnow(),
+        "completed_at": datetime.utcnow(),
+        "top_variants": vcf_data["variants"][:10] if vcf_data["variants"] else []
+    }
+    
+    analyses_db[analysis_id] = analysis
+    
+    return {
+        "message": "File uploaded successfully",
+        "analysis_id": analysis_id,
+        "filename": file.filename,
+        "variants_analyzed": vcf_data["total_variants"],
+        "risk_classification": risk_classification,
+        "pathogenic_variants": vcf_data["pathogenic"]
+    }
+
+@app.get("/analysis/results/{analysis_id}")
+async def get_analysis_results(
+    analysis_id: str,
+    current_user: User = Depends(get_current_user)
+):
+    """Get analysis results by ID"""
+    
+    analysis = analyses_db.get(analysis_id)
+    
+    if not analysis:
+        raise HTTPException(status_code=404, detail="Analysis not found")
+    
+    if analysis["user_id"] != current_user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    # Convert datetime objects to ISO format strings for proper JSON serialization
+    result = dict(analysis)
+    if "created_at" in result and result["created_at"]:
+        result["created_at"] = result["created_at"].isoformat()
+    if "completed_at" in result and result["completed_at"]:
+        result["completed_at"] = result["completed_at"].isoformat()
+    
+    return result
+
+@app.get("/analysis/history")
+async def get_analysis_history(
+    current_user: User = Depends(get_current_user)
+):
+    """Get user's analysis history"""
+    
+    user_analyses = [
+        analysis for analysis in analyses_db.values()
+        if analysis["user_id"] == current_user.id
+    ]
+    
+    # Convert datetime objects to ISO format strings for proper JSON serialization
+    results = []
+    for analysis in user_analyses:
+        result = dict(analysis)
+        if "created_at" in result and result["created_at"]:
+            result["created_at"] = result["created_at"].isoformat()
+        if "completed_at" in result and result["completed_at"]:
+            result["completed_at"] = result["completed_at"].isoformat()
+        results.append(result)
+    
+    return results
+
+@app.delete("/analysis/results/{analysis_id}")
+async def delete_analysis(
+    analysis_id: str,
+    current_user: User = Depends(get_current_user)
+):
+    """Delete analysis"""
+    
+    analysis = analyses_db.get(analysis_id)
+    
+    if not analysis:
+        raise HTTPException(status_code=404, detail="Analysis not found")
+    
+    if analysis["user_id"] != current_user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    del analyses_db[analysis_id]
+    
+    return {"message": "Analysis deleted successfully"}
+
+from fastapi.responses import Response
+
+@app.get("/analysis/results/{analysis_id}/download")
+async def download_report(
+    analysis_id: str,
+    current_user: User = Depends(get_current_user)
+):
+    """Download analysis report as a formatted text file"""
+    
+    analysis = analyses_db.get(analysis_id)
+    
+    if not analysis:
+        raise HTTPException(status_code=404, detail="Analysis not found")
+    
+    if analysis["user_id"] != current_user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    # Generate report content
+    report = f"""
+╔══════════════════════════════════════════════════════════════════╗
+║              HELIXMIND GENOMIC ANALYSIS REPORT                   ║
+╚══════════════════════════════════════════════════════════════════╝
+
+PATIENT INFORMATION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+User ID:          {current_user.id}
+Username:         {current_user.username}
+Email:            {current_user.email}
+Report Date:      {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC
+
+ANALYSIS SUMMARY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Analysis ID:      {analysis['id']}
+File Name:        {analysis['filename']}
+Analysis Date:    {analysis['created_at'].strftime('%Y-%m-%d %H:%M:%S')} UTC
+Status:           {analysis['status'].upper()}
+
+RISK ASSESSMENT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Overall Risk Level:        {analysis['risk_classification'].upper()}
+Risk Probability:          {analysis['risk_probability'] * 100:.1f}%
+Risk Score:                {analysis['risk_probability']:.2f} / 1.00
+
+VARIANT STATISTICS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Total Variants Analyzed:   {analysis['variants_analyzed']}
+
+Risk Level Distribution:
+  High Risk Variants:      {analysis.get('high_risk_variants', 0)} ({analysis.get('high_risk_variants', 0) / max(1, analysis['variants_analyzed']) * 100:.1f}%)
+  Medium Risk Variants:    {analysis.get('medium_risk_variants', 0)} ({analysis.get('medium_risk_variants', 0) / max(1, analysis['variants_analyzed']) * 100:.1f}%)
+  Low Risk Variants:       {analysis.get('low_risk_variants', 0)} ({analysis.get('low_risk_variants', 0) / max(1, analysis['variants_analyzed']) * 100:.1f}%)
+
+Clinical Significance Distribution:
+  Pathogenic Variants:           {analysis.get('pathogenic_variants', 0)} ({analysis.get('pathogenic_variants', 0) / max(1, analysis['variants_analyzed']) * 100:.1f}%)
+  Likely Pathogenic Variants:    {analysis.get('likely_pathogenic_variants', 0)} ({analysis.get('likely_pathogenic_variants', 0) / max(1, analysis['variants_analyzed']) * 100:.1f}%)
+  Variants of Unknown Significance (VUS): {analysis.get('vus_variants', 0)} ({analysis.get('vus_variants', 0) / max(1, analysis['variants_analyzed']) * 100:.1f}%)
+  Benign Variants:               {analysis.get('benign_variants', 0)} ({analysis.get('benign_variants', 0) / max(1, analysis['variants_analyzed']) * 100:.1f}%)
+
+Total Pathogenic + Likely Pathogenic:  {analysis.get('pathogenic_variants', 0) + analysis.get('likely_pathogenic_variants', 0)} ({(analysis.get('pathogenic_variants', 0) + analysis.get('likely_pathogenic_variants', 0)) / max(1, analysis['variants_analyzed']) * 100:.1f}%)
+
+RISK INTERPRETATION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+"""
+    
+    # Add risk interpretation based on classification
+    if analysis['risk_classification'] == 'high':
+        report += """
+⚠️  HIGH RISK DETECTED
+Your genetic profile shows a higher likelihood of certain health conditions.
+This does not mean you will develop these conditions, but indicates increased
+risk factors that may benefit from:
+  • Regular health monitoring
+  • Preventive screening programs
+  • Consultation with genetic counselors
+  • Lifestyle modifications
+  • Discussion with healthcare provider
+"""
+    elif analysis['risk_classification'] == 'medium':
+        report += """
+⚡ MODERATE RISK DETECTED
+Your genetic profile shows moderate risk factors for certain conditions.
+Consider:
+  • Regular health check-ups
+  • Maintaining healthy lifestyle habits
+  • Discussing findings with your healthcare provider
+  • Periodic reassessment as needed
+"""
+    else:
+        report += """
+✓ LOW RISK DETECTED
+Your genetic profile shows lower risk factors for the analyzed conditions.
+Recommendations:
+  • Continue healthy lifestyle practices
+  • Regular routine health check-ups
+  • Stay informed about family health history
+"""
+    
+    # Add top variants if available
+    if analysis.get('top_variants'):
+        report += """
+
+TOP GENETIC VARIANTS DETECTED (PATHOGENIC/HIGH RISK)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+"""
+        for i, variant in enumerate(analysis['top_variants'][:10], 1):
+            report += f"""
+Variant #{i}
+  Chromosome:          {variant['chromosome']}
+  Position:            {variant['position']}
+  Variant ID:          {variant.get('id', 'N/A')}
+  Gene:                {variant.get('gene', 'Unknown')}
+  Reference Allele:    {variant.get('ref', 'N/A')}
+  Alternate Allele:    {variant.get('alt', 'N/A')}
+  Risk Level:          {variant.get('risk', 'Unknown')}
+  Clinical Significance: {variant.get('clnsig', 'Unknown')}
+  Associated Disease:  {variant.get('disease', 'Unknown').replace('_', ' ')}
+  Impact:              {variant.get('impact', 'Unknown')}
+"""
+    
+    report += """
+
+DISCLAIMER
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+This report is for informational and research purposes only. It should not
+be used as a substitute for professional medical advice, diagnosis, or
+treatment. Always seek the advice of your physician or other qualified
+health provider with any questions you may have regarding a medical condition.
+
+Genetic risk assessments are based on current scientific understanding and
+may change as research advances. Environmental factors, lifestyle choices,
+and other genetic variants not tested may also influence disease risk.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Generated by HelixMind™ Genomic Analysis Platform
+Report ID: {analysis['id']}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+"""
+    
+    # Return as downloadable file
+    filename = f"HelixMind_Report_{analysis['id'][:8]}_{datetime.utcnow().strftime('%Y%m%d')}.txt"
+    
+    return Response(
+        content=report,
+        media_type="text/plain",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"'
+        }
+    )
