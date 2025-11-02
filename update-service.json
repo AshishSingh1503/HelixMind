@@ -1,0 +1,13 @@
+{
+  "cluster": "genomeguard-cluster-dev",
+  "service": "genomeguard-backend-dev",
+  "taskDefinition": "genomeguard-backend-dev:4",
+  "loadBalancers": [
+    {
+      "targetGroupArn": "arn:aws:elasticloadbalancing:us-east-1:731787353717:targetgroup/genomeguard-backend-80-dev/01573ab4e27d8895",
+      "containerName": "backend",
+      "containerPort": 80
+    }
+  ],
+  "forceNewDeployment": true
+}

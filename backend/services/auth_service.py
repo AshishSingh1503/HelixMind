@@ -1,28 +1,25 @@
 from datetime import datetime, timedelta
 from typing import Optional
-import bcrypt
+import hashlib
+import secrets
 from jose import jwt
 from backend.models.database import get_database
 from backend.models.schemas import User, UserCreate
 from config.settings import settings
-from loguru import logger
 import uuid
 
 def hash_password(password: str) -> str:
-    """Hash a password using bcrypt"""
-    password_bytes = password.encode('utf-8')
-    salt = bcrypt.gensalt()
-    hashed = bcrypt.hashpw(password_bytes, salt)
-    return hashed.decode('utf-8')
+    """Hash a password using SHA-256 with salt"""
+    salt = secrets.token_hex(16)
+    password_hash = hashlib.sha256((password + salt).encode()).hexdigest()
+    return f"{salt}:{password_hash}"
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Verify a password against a hash"""
     try:
-        password_bytes = plain_password.encode('utf-8')
-        hashed_bytes = hashed_password.encode('utf-8')
-        return bcrypt.checkpw(password_bytes, hashed_bytes)
-    except Exception as e:
-        logger.error(f"Password verification failed: {e}")
+        salt, password_hash = hashed_password.split(':')
+        return hashlib.sha256((plain_password + salt).encode()).hexdigest() == password_hash
+    except Exception:
         return False
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
@@ -53,13 +50,13 @@ async def create_user(user_data: UserCreate) -> Optional[User]:
             ]
         })
         if existing_user:
-            logger.info(f"User already exists in database: {user_data.username}")
+            print(f"User already exists in database: {user_data.username}")
             return None
     else:
         # Check in-memory storage
         for user_id, user in _memory_users.items():
             if user["username"] == user_data.username or user["email"] == user_data.email:
-                logger.info(f"User already exists in memory: {user_data.username}")
+                print(f"User already exists in memory: {user_data.username}")
                 return None
     
     # Create user document
@@ -78,14 +75,14 @@ async def create_user(user_data: UserCreate) -> Optional[User]:
     if db is not None:
         try:
             db.users.insert_one(user_doc)
-            logger.info(f"✓ User created in MongoDB: {user_data.username}")
+            print(f"✓ User created in MongoDB: {user_data.username}")
         except Exception as e:
-            logger.error(f"Failed to create user in MongoDB: {e}")
+            print(f"Failed to create user in MongoDB: {e}")
             return None
     else:
         # Store in memory
         _memory_users[user_id] = user_doc
-        logger.info(f"✓ User created in memory: {user_data.username}")
+        print(f"✓ User created in memory: {user_data.username}")
     
     return User(
         id=user_id,
@@ -106,7 +103,7 @@ async def get_user_by_username(username: str) -> Optional[User]:
         try:
             user_doc = db.users.find_one({"username": username})
         except Exception as e:
-            logger.error(f"Database query failed: {e}")
+            print(f"Database query failed: {e}")
     
     # Fall back to memory storage
     if user_doc is None:
@@ -137,7 +134,7 @@ async def authenticate_user(username: str, password: str) -> Optional[User]:
         try:
             user_doc = db.users.find_one({"username": username})
         except Exception as e:
-            logger.error(f"Database query failed: {e}")
+            print(f"Database query failed: {e}")
     
     # Fall back to memory storage
     if user_doc is None:
@@ -147,14 +144,14 @@ async def authenticate_user(username: str, password: str) -> Optional[User]:
                 break
     
     if not user_doc:
-        logger.debug(f"User not found: {username}")
+        print(f"User not found: {username}")
         return None
     
     if not verify_password(password, user_doc["hashed_password"]):
-        logger.debug(f"Invalid password for user: {username}")
+        print(f"Invalid password for user: {username}")
         return None
     
-    logger.info(f"✓ User authenticated: {username}")
+    print(f"✓ User authenticated: {username}")
     return User(
         id=user_doc["_id"],
         username=user_doc["username"],

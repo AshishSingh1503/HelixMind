@@ -1,0 +1,30 @@
+{
+  "family": "genomeguard-backend-dev",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "256",
+  "memory": "512",
+  "executionRoleArn": "arn:aws:iam::731787353717:role/genomeguard-ecs-execution-role-dev",
+  "taskRoleArn": "arn:aws:iam::731787353717:role/genomeguard-ecs-task-role-dev",
+  "containerDefinitions": [
+    {
+      "name": "backend",
+      "image": "731787353717.dkr.ecr.us-east-1.amazonaws.com/genomeguard-backend:latest",
+      "portMappings": [
+        {
+          "containerPort": 80,
+          "protocol": "tcp"
+        }
+      ],
+      "essential": true,
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/genomeguard-backend-dev",
+          "awslogs-region": "us-east-1",
+          "awslogs-stream-prefix": "ecs"
+        }
+      }
+    }
+  ]
+}
